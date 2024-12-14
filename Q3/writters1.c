@@ -1,82 +1,100 @@
+#include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
-#include <semaphore.h>
+#include <unistd.h>
 
-sem_t mutex;  // Controle de acesso à variável compartilhada `rc`
-sem_t db;     // Controle de acesso exclusivo à base de dados
-int rc = 0;   // Contador de leitores ativos
+#define NUM_READERS 10
+#define NUM_WRITERS 5
 
-void* reader(void* arg) {
+pthread_mutex_t mutex;
+pthread_mutex_t db;
+int leitor_lendo = 0;
+
+void ler_base_de_dados(void);
+void usar_banco(void);
+void pensando_nos_dados(void);
+void escrever_no_banco(void);
+
+void leitor() {
     while (1) {
-        // Região crítica para atualizar o contador de leitores
-        sem_wait(&mutex);  // down(&mutex)
-        rc++;
-        if (rc == 1) {
-            sem_wait(&db); // Primeiro leitor bloqueia escritores
-        }
-        sem_post(&mutex);  // up(&mutex)
+        pthread_mutex_lock(&mutex);
+        leitor_lendo += 1;
+        if (leitor_lendo == 1) 
+            pthread_mutex_lock(&db);  // Primeiro leitor bloqueia o banco
+        pthread_mutex_unlock(&mutex);
 
-        // Leitura da base de dados
-        printf("Reader %ld is reading the database...\n", (long)arg);
-        
-        // Região crítica para atualizar o contador de leitores
-        sem_wait(&mutex);  // down(&mutex)
-        rc--;
-        if (rc == 0) {
-            sem_post(&db); // Último leitor libera escritores
-        }
-        sem_post(&mutex);  // up(&mutex)
+        ler_base_de_dados();
 
-        // Região não crítica
-        printf("Reader %ld finished using the data.\n", (long)arg);
+        pthread_mutex_lock(&mutex);
+        leitor_lendo -= 1;
+        if (leitor_lendo == 0) 
+            pthread_mutex_unlock(&db);  // Último leitor libera o banco
+        pthread_mutex_unlock(&mutex);
+
+        usar_banco();
     }
-    return NULL;
 }
 
-void* writer(void* arg) {
+void escritor() {
     while (1) {
-        // Região não crítica
-        printf("Writer %ld is thinking up data...\n", (long)arg);
-
-        // Região crítica: acesso exclusivo à base de dados
-        sem_wait(&db);  // down(&db)
-        printf("Writer %ld is writing to the database...\n", (long)arg);
-        sem_post(&db);  // up(&db)
-        
-        // Região não crítica
-        printf("Writer %ld finished writing.\n", (long)arg);
+        pensando_nos_dados();
+        pthread_mutex_lock(&db);  // Escritor só consegue acessar quando o banco está livre
+        escrever_no_banco();
+        pthread_mutex_unlock(&db);
     }
-    return NULL;
+}
+
+void ler_base_de_dados() {
+    int tempo_leitura = rand() % 5;
+    printf("Leitor lendo o banco. Leitores ativos: %d\n", leitor_lendo);
+    sleep(tempo_leitura);
+}
+
+void usar_banco() {
+    int tempo_uso = rand() % 15;
+    printf("Leitor usando dados do banco.\n");
+    sleep(tempo_uso);
+}
+
+void pensando_nos_dados() {
+    int tempo_pensar = rand() % 10;
+    printf("Escritor pensando no que escrever.\n");
+    sleep(tempo_pensar);
+}
+
+void escrever_no_banco() {
+    int tempo_escrever = rand() % 10;
+    printf("Escritor escrevendo no banco de dados.\n");
+    sleep(tempo_escrever);
 }
 
 int main() {
-    pthread_t readers[5], writers[2]; // Threads para leitores e escritores
+    pthread_t readers[NUM_READERS], writers[NUM_WRITERS];
 
-    // Inicialização dos semáforos
-    sem_init(&mutex, 0, 1); // Inicializa `mutex` com valor 1
-    sem_init(&db, 0, 1);    // Inicializa `db` com valor 1
+    pthread_mutex_init(&db, NULL);
+    pthread_mutex_init(&mutex, NULL);
 
-    // Criação de threads para leitores
-    for (long i = 0; i < 5; i++) {
-        pthread_create(&readers[i], NULL, reader, (void*)i);
+    // Criando threads de leitores
+    for (int i = 0; i < NUM_READERS; i++) {
+        pthread_create(&readers[i], NULL, (void *) leitor, NULL);
     }
 
-    // Criação de threads para escritores
-    for (long i = 0; i < 2; i++) {
-        pthread_create(&writers[i], NULL, writer, (void*)i);
+    // Criando threads de escritores
+    for (int i = 0; i < NUM_WRITERS; i++) {
+        pthread_create(&writers[i], NULL, (void *) escritor, NULL);
     }
 
-    // Aguardar as threads (nunca termina neste exemplo)
-    for (int i = 0; i < 5; i++) {
+    // Aguarda as threads terminarem
+    for (int i = 0; i < NUM_READERS; i++) {
         pthread_join(readers[i], NULL);
     }
-    for (int i = 0; i < 2; i++) {
+
+    for (int i = 0; i < NUM_WRITERS; i++) {
         pthread_join(writers[i], NULL);
     }
 
-    // Destruição dos semáforos (não alcançado aqui)
-    sem_destroy(&mutex);
-    sem_destroy(&db);
+    pthread_mutex_destroy(&db);
+    pthread_mutex_destroy(&mutex);
 
     return 0;
 }
