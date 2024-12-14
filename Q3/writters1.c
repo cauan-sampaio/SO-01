@@ -1,77 +1,82 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include <unistd.h>
 
-#define TOTAL_LEITORES 10
-#define TOTAL_ESCRITORES 3
+sem_t mutex;  // Controle de acesso à variável compartilhada `rc`
+sem_t db;     // Controle de acesso exclusivo à base de dados
+int rc = 0;   // Contador de leitores ativos
 
-sem_t leitores_sem;
-sem_t escritores_sem;
-int leitores_ativos = 0;
+void* reader(void* arg) {
+    while (1) {
+        // Região crítica para atualizar o contador de leitores
+        sem_wait(&mutex);  // down(&mutex)
+        rc++;
+        if (rc == 1) {
+            sem_wait(&db); // Primeiro leitor bloqueia escritores
+        }
+        sem_post(&mutex);  // up(&mutex)
 
-void* leitor(void* id) {
-    int leitor_id = *((int*)id);
+        // Leitura da base de dados
+        printf("Reader %ld is reading the database...\n", (long)arg);
+        
+        // Região crítica para atualizar o contador de leitores
+        sem_wait(&mutex);  // down(&mutex)
+        rc--;
+        if (rc == 0) {
+            sem_post(&db); // Último leitor libera escritores
+        }
+        sem_post(&mutex);  // up(&mutex)
 
-    sem_wait(&leitores_sem);
-    leitores_ativos++;
-    sem_post(&leitores_sem);
-
-    printf("Leitor %d lendo.\n", leitor_id);
-    sleep(1); // Simula o tempo de leitura
-
-    sem_wait(&leitores_sem);
-    leitores_ativos--;
-    sem_post(&leitores_sem);
-
+        // Região não crítica
+        printf("Reader %ld finished using the data.\n", (long)arg);
+    }
     return NULL;
 }
 
-void* escritor(void* id) {
-    sem_wait(&leitores_sem);
-    while (leitores_ativos > 0) {
-        sem_post(&leitores_sem); // Desbloqueia a espera
-        sleep(1); // Espera enquanto há leitores
-        sem_wait(&leitores_sem);
+void* writer(void* arg) {
+    while (1) {
+        // Região não crítica
+        printf("Writer %ld is thinking up data...\n", (long)arg);
+
+        // Região crítica: acesso exclusivo à base de dados
+        sem_wait(&db);  // down(&db)
+        printf("Writer %ld is writing to the database...\n", (long)arg);
+        sem_post(&db);  // up(&db)
+        
+        // Região não crítica
+        printf("Writer %ld finished writing.\n", (long)arg);
     }
-
-    printf("Escritor %d escrevendo.\n", *((int*)id));
-    sleep(2); // Simula o tempo de escrita
-    sem_post(&leitores_sem);
-
     return NULL;
 }
 
 int main() {
-    pthread_t leitores[TOTAL_LEITORES];
-    pthread_t escritores[TOTAL_ESCRITORES];
-    int ids[TOTAL_LEITORES];
+    pthread_t readers[5], writers[2]; // Threads para leitores e escritores
 
-    sem_init(&leitores_sem, 0, 1);  // Semáforo para controlar o número de leitores ativos
-    sem_init(&escritores_sem, 0, 1); // Semáforo para controlar o número de escritores
+    // Inicialização dos semáforos
+    sem_init(&mutex, 0, 1); // Inicializa `mutex` com valor 1
+    sem_init(&db, 0, 1);    // Inicializa `db` com valor 1
 
-    // Cria as threads de leitores
-    for (int i = 0; i < TOTAL_LEITORES; i++) {
-        ids[i] = i;
-        pthread_create(&leitores[i], NULL, leitor, &ids[i]);
+    // Criação de threads para leitores
+    for (long i = 0; i < 5; i++) {
+        pthread_create(&readers[i], NULL, reader, (void*)i);
     }
 
-    // Cria as threads de escritores
-    for (int i = 0; i < TOTAL_ESCRITORES; i++) {
-        pthread_create(&escritores[i], NULL, escritor, &i);
+    // Criação de threads para escritores
+    for (long i = 0; i < 2; i++) {
+        pthread_create(&writers[i], NULL, writer, (void*)i);
     }
 
-    // Aguarda as threads de leitores e escritores terminarem
-    for (int i = 0; i < TOTAL_LEITORES; i++) {
-        pthread_join(leitores[i], NULL);
+    // Aguardar as threads (nunca termina neste exemplo)
+    for (int i = 0; i < 5; i++) {
+        pthread_join(readers[i], NULL);
+    }
+    for (int i = 0; i < 2; i++) {
+        pthread_join(writers[i], NULL);
     }
 
-    for (int i = 0; i < TOTAL_ESCRITORES; i++) {
-        pthread_join(escritores[i], NULL);
-    }
-
-    sem_destroy(&leitores_sem);
-    sem_destroy(&escritores_sem);
+    // Destruição dos semáforos (não alcançado aqui)
+    sem_destroy(&mutex);
+    sem_destroy(&db);
 
     return 0;
 }
