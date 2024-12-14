@@ -45,13 +45,13 @@ void escritor() {
 }
 
 void ler_base_de_dados() {
-    int tempo_leitura = rand() % 5;
+    int tempo_leitura = rand() % 11;
     printf("Leitor lendo o banco. Leitores ativos: %d\n", leitor_lendo);
     sleep(tempo_leitura);
 }
 
 void usar_banco() {
-    int tempo_uso = rand() % 15;
+    int tempo_uso = rand() % 3;
     printf("Leitor usando dados do banco.\n");
     sleep(tempo_uso);
 }
